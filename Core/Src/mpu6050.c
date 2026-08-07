@@ -18,7 +18,8 @@ MPU6050_Status_t MPU6050_Init(I2C_HandleTypeDef *hi2c, MPU6050_t *pData)
         return MPU6050_ERR_I2C;
     }
     
-    if (check != 0x68) {
+    // MPU6050(0x68), MPU6500(0x70), MPU9250(0x71, 0x73), ICM20689(0x98), Fake Clones(0x72)
+    if (check != 0x68 && check != 0x70 && check != 0x71 && check != 0x73 && check != 0x98 && check != 0x72) {
         return MPU6050_DEVICE_NOT_FOUND;
     }
     

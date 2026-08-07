@@ -115,6 +115,24 @@ int main(void)
   UART_Console_Init(&huart1);
   Telemetry_Init();
   
+  // --- [DIAGNOSTIC] I2C Scanner ---
+  char scan_buf[64];
+  uint8_t found_count = 0;
+  Telemetry_Publish_String(&huart1, "BOOT,INFO,SCANNING_I2C_BUS...\r\n");
+  for(uint16_t i=1; i<128; i++) {
+      if(HAL_I2C_IsDeviceReady(&hi2c1, (i<<1), 3, 100) == HAL_OK) {
+          uint8_t whoami = 0;
+          HAL_I2C_Mem_Read(&hi2c1, (i<<1), 0x75, 1, &whoami, 1, 100);
+          snprintf(scan_buf, sizeof(scan_buf), "BOOT,INFO,FOUND_I2C_AT_0x%02X_WHOAMI_0x%02X\r\n", i, whoami);
+          Telemetry_Publish_String(&huart1, scan_buf);
+          found_count++;
+      }
+  }
+  if(found_count == 0) {
+      Telemetry_Publish_String(&huart1, "BOOT,ERR,NO_I2C_DEVICES_FOUND\r\n");
+  }
+  // --------------------------------
+  
   if (MPU6050_Init(&hi2c1, &my_mpu) != MPU6050_OK) {
       g_sensor_status = NODE_SENSOR_OFFLINE;
       Telemetry_Publish_String(&huart1, "BOOT,ERR,DEVICE_NOT_FOUND\r\n");
