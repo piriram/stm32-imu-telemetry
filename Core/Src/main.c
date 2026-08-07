@@ -23,6 +23,8 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include "mpu6050.h"
+#include "telemetry.h"
+#include "uart_console.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,10 +48,14 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
-/* Sensor state exposed for real-time inspection with Live Expressions. */
 MPU6050_t my_mpu;
-/* USER CODE END PV */
 
+Node_Status_t g_sensor_status = NODE_OK;
+uint32_t last_sensor_tick = 0;
+uint32_t last_telemetry_tick = 0;
+uint32_t last_probe_tick = 0;
+/* USER CODE END PV */
+ 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -61,7 +67,12 @@ static void MX_I2C1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/* Redirect printf output to USART1 for serial monitoring. */
+/*
+ * [공부 포인트 - printf 리다이렉션 (Redirection)]
+ * C언어의 표준 출력 함수인 printf()는 원래 PC의 모니터(콘솔)로 문자를 보냅니다.
+ * 임베디드 보드에는 모니터가 없으므로, 이 마법의 함수(__io_putchar)를 오버라이딩하여
+ * printf()가 호출될 때마다 그 글자(ch)들을 UART1 통신선(Tx)을 통해 PC로 전송하도록 방향을 틀어줍니다.
+ */
 int __io_putchar(int ch)
 {
   HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 0xFFFF);
@@ -101,26 +112,79 @@ int main(void)
   MX_USART1_UART_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  /* Initialize the sensor driver with its I2C interface and state storage. */
-  MPU6050_Init(&hi2c1, &my_mpu);
+  UART_Console_Init(&huart1);
+  Telemetry_Init();
+  
+  if (MPU6050_Init(&hi2c1, &my_mpu) != MPU6050_OK) {
+      g_sensor_status = NODE_SENSOR_OFFLINE;
+      Telemetry_Publish_String(&huart1, "BOOT,ERR,DEVICE_NOT_FOUND\r\n");
+  } else {
+      g_sensor_status = NODE_OK;
+      Telemetry_Publish_String(&huart1, "BOOT,OK,MPU6050_FOUND\r\n");
+  }
+  
+  last_sensor_tick = HAL_GetTick();
+  last_telemetry_tick = HAL_GetTick();
+  last_probe_tick = HAL_GetTick();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-      /* Toggle the heartbeat LED to indicate that the main loop is running. */
-      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-
-      /* Update raw measurements and filtered attitude through the driver API. */
-      MPU6050_Read_All(&hi2c1, &my_mpu);
-
-      /* Stream unfiltered and filtered roll values for comparison. */
-      printf("%.2f,%.2f\r\n", my_mpu.Accel_Roll, my_mpu.Filtered_Roll);
-
-      /* Sample at 20 Hz. */
-      HAL_Delay(50);
-
+      uint32_t current_tick = HAL_GetTick();
+      
+      // 1. Process UART commands
+      UART_Console_Process();
+      
+      // 2. Sensor Sampling (20Hz = 50ms)
+      if (g_sensor_status == NODE_OK) {
+          if ((current_tick - last_sensor_tick) >= 50) {
+              last_sensor_tick = current_tick;
+              
+              if (MPU6050_Read_All(&hi2c1, &my_mpu) != MPU6050_OK) {
+                  g_sensor_status = NODE_SENSOR_OFFLINE;
+                  Telemetry_Publish_String(&huart1, "ERR,SENSOR_OFFLINE\r\n");
+                  last_probe_tick = current_tick;
+              }
+          }
+      } 
+      // 3. Sensor Reconnect Probe (1Hz = 1000ms)
+      else if (g_sensor_status == NODE_SENSOR_OFFLINE) {
+          if ((current_tick - last_probe_tick) >= 1000) {
+              last_probe_tick = current_tick;
+              
+              if (MPU6050_Init(&hi2c1, &my_mpu) == MPU6050_OK) {
+                  g_sensor_status = NODE_OK;
+                  Telemetry_Publish_String(&huart1, "OK,SENSOR_RECOVERED\r\n");
+              }
+          }
+      }
+      
+      // 4. Telemetry Publishing (10Hz = 100ms)
+      if ((current_tick - last_telemetry_tick) >= 100) {
+          last_telemetry_tick = current_tick;
+          
+          if (g_sensor_status == NODE_OK) {
+              IMU_Sample_t sample;
+              sample.ax = my_mpu.Accel_X_Raw;
+              sample.ay = my_mpu.Accel_Y_Raw;
+              sample.az = my_mpu.Accel_Z_Raw;
+              sample.gx = my_mpu.Gyro_X_Raw;
+              sample.gy = my_mpu.Gyro_Y_Raw;
+              sample.gz = my_mpu.Gyro_Z_Raw;
+              sample.roll_cdeg = (int16_t)(my_mpu.Filtered_Roll * 100.0);
+              sample.pitch_cdeg = (int16_t)(my_mpu.Filtered_Pitch * 100.0);
+              sample.t_ms = current_tick;
+              sample.status = NODE_OK;
+              
+              Telemetry_Publish(&huart1, &sample);
+          }
+          
+          // Heartbeat LED
+          HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+      }
+      
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -248,7 +312,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
-  /* Configure the BluePill onboard LED on PC13. */
+  // CubeMX에서 누락되었을지 모를 PC13 핀 초기화 코드를 직접 추가합니다.
   __HAL_RCC_GPIOC_CLK_ENABLE();
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   GPIO_InitStruct.Pin = GPIO_PIN_13;

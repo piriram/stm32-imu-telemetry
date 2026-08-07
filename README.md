@@ -1,169 +1,150 @@
-# STM32F103 × MPU6050 IMU 자세 추정 펌웨어
+# STM32F103 IMU 자세 추정 노드
 
-STM32F103C8T6에서 MPU6050의 6축 IMU 데이터를 I2C로 수집하고, 상보 필터로 Roll/Pitch 자세각을 계산하는 펌웨어입니다. 센서 드라이버를 메인 루프와 분리했으며, 필터 적용 전·후 값을 UART 또는 SWD 기반 디버깅으로 비교할 수 있습니다.
+STM32F103C8(Blue Pill)과 MPU6050 IMU 센서를 이용한 자세 추정 펌웨어.  
+상보 필터(Complementary Filter)를 직접 구현하여 Roll/Pitch 각도를 실시간으로 추정하고, UART 텔레메트리로 전송합니다.
 
-## 핵심 기능
+---
 
-- MPU6050 Sleep 모드 해제 및 I2C 레지스터 접근
-- 가속도계·자이로스코프 14바이트 Burst Read
-- 16비트 Raw Data 복원 및 Roll/Pitch 계산
-- 가속도 Noise와 자이로 Drift를 보완하는 상보 필터
-- UART 시리얼 출력 및 STM32CubeIDE Live Expressions 디버깅
-- CMake 기반 ARM Cross Compile와 GitHub Actions 자동 빌드
+## 개요
 
-## 시스템 구성
+| 항목 | 내용 |
+|------|------|
+| MCU | STM32F103C8T6 (Blue Pill) |
+| 센서 | MPU6050 (가속도계 + 자이로스코프) |
+| 통신 인터페이스 | I2C1 (센서), USART1 (텔레메트리/콘솔) |
+| 필터 알고리즘 | 상보 필터 (α = 0.96) |
+| 센서 샘플링 | 20 Hz |
+| 텔레메트리 출력 | 10 Hz |
+| Baud Rate | 115200 bps |
+| 개발 환경 | STM32CubeIDE, STM32 HAL |
 
-```text
-MPU6050 ──I2C 100 kHz──▶ STM32F103C8T6 ──UART 115200 bps──▶ PC
-  IMU                      자세각 계산                 시리얼 모니터링
-                                │
-                                └──SWD/ST-Link──▶ Live Expressions
+---
+
+## 핵심 구현: 상보 필터
+
+가속도 센서와 자이로 센서는 각각 치명적인 단점이 있습니다.
+
+- **가속도 센서**: 시간이 지나도 절대 기준(중력 방향)을 잃지 않지만, 진동/이동 시 노이즈가 심하게 튑니다.
+- **자이로 센서**: 단기적으로는 매우 부드럽지만, 시간이 지날수록 오차가 누적되는 드리프트(drift)가 발생합니다.
+
+상보 필터는 두 센서의 장점만 취합니다.
+
+```c
+// mpu6050.c
+// 96%는 자이로 적분값(빠른 응답, 드리프트 있음)을 신뢰하고,
+// 4%는 가속도 절대 각도(느리지만 정확한 기준)로 보정합니다.
+Filtered_Roll  = 0.96 * (Filtered_Roll  + gx_rate * dt) + 0.04 * Accel_Roll;
+Filtered_Pitch = 0.96 * (Filtered_Pitch + gy_rate * dt) + 0.04 * Accel_Pitch;
 ```
 
-## 구현 현황
-
-| 단계 | 내용 | 상태 |
-|---|---|---|
-| Phase 1 | I2C 초기화 및 MPU6050 Sleep 해제 | ✅ 완료 |
-| Phase 2 | 가속도·자이로 14바이트 Burst Read 및 각도 변환 | ✅ 완료 |
-| Phase 3 | 상보 필터 적용 및 출력 값 비교 | ✅ 완료 |
-
-## 하드웨어
-
-| 부품 | 사양 | 역할 |
-|---|---|---|
-| MCU | STM32F103C8T6 (BluePill) | 센서 데이터 수집·자세 추정 |
-| IMU | MPU6050 (GY-521) | 3축 가속도·3축 자이로 측정 |
-| Debugger | ST-Link V2 | Firmware Flash·SWD 디버깅 |
-| Serial | USB-to-TTL | UART 데이터 모니터링 |
-
-### 핀 매핑
-
-| 신호 | STM32 핀 | 연결 대상 |
-|---|---|---|
-| I2C1_SCL | PB6 | MPU6050 SCL |
-| I2C1_SDA | PB7 | MPU6050 SDA |
-| USART1_TX | PA9 | USB-to-TTL RX |
-| USART1_RX | PA10 | USB-to-TTL TX |
-| Heartbeat LED | PC13 | BluePill Onboard LED |
+---
 
 ## 소프트웨어 구조
 
-```text
-main.c
-  ├── HAL·Clock·GPIO·I2C·UART 초기화
-  ├── MPU6050 Driver 호출
-  └── 20 Hz 주기 UART 출력
-
-mpu6050.c
-  ├── PWR_MGMT_1 설정
-  ├── 14-byte Burst Read
-  ├── Raw Data 복원·자세각 계산
-  └── Complementary Filter
+```
+Core/
+├── Inc/
+│   ├── mpu6050.h       # MPU6050 드라이버 인터페이스 & 데이터 구조체
+│   ├── telemetry.h     # IMU_Sample_t 구조체, 텔레메트리 API
+│   └── uart_console.h  # 링 버퍼 기반 UART 콘솔 인터페이스
+└── Src/
+    ├── main.c          # 메인 루프 (non-blocking 태스크 스케줄링)
+    ├── mpu6050.c       # I2C 드라이버 + 상보 필터 구현
+    ├── telemetry.c     # CSV 포맷 텔레메트리 직렬화 & 전송
+    └── uart_console.c  # 링 버퍼 RX, 인터럽트 기반 커맨드 처리
 ```
 
-## 핵심 구현
+### 메인 루프 태스크 구조
 
-### 1. MPU6050 초기화
+`while(1)` 내부는 `HAL_GetTick()`을 이용한 non-blocking 방식으로 태스크를 분리합니다.
 
-MPU6050은 전원 인가 후 Sleep 상태이므로 `PWR_MGMT_1(0x6B)` 레지스터에 `0x00`을 기록합니다.
+| 태스크 | 주기 | 설명 |
+|--------|------|------|
+| UART 커맨드 처리 | 매 루프 | 링 버퍼에서 수신 바이트 소비 |
+| 센서 샘플링 | 50ms (20Hz) | MPU6050 Burst Read + 상보 필터 |
+| 센서 재연결 프로브 | 1000ms (1Hz) | 센서 오프라인 감지 시 재초기화 시도 |
+| 텔레메트리 전송 | 100ms (10Hz) | CSV 포맷 데이터 UART 출력 |
+| Heartbeat LED | 100ms (10Hz) | PC13 토글 (정상 동작 확인) |
 
-```c
-uint8_t wake_command = 0x00;
+---
 
-HAL_I2C_Mem_Write(
-    hi2c,
-    MPU6050_ADDR,
-    MPU6050_REG_PWR_MGMT_1,
-    I2C_MEMADD_SIZE_8BIT,
-    &wake_command,
-    1,
-    100
-);
+## 텔레메트리 프로토콜
+
+UART 출력은 CSV 포맷입니다. 터미널(PuTTY, CoolTerm 등)에서 바로 확인할 수 있습니다.
+
+**부팅 메시지**
+```
+BOOT,OK,MPU6050_FOUND
 ```
 
-### 2. 14바이트 Burst Read
-
-`ACCEL_XOUT_H(0x3B)`부터 가속도 6바이트, 온도 2바이트, 자이로 6바이트를 한 번에 읽습니다. I2C 통신에 실패하면 해당 주기의 자세각 갱신을 중단합니다.
-
-```c
-uint8_t received_data[14] = {0};
-
-if (HAL_I2C_Mem_Read(
-        hi2c,
-        MPU6050_ADDR,
-        MPU6050_REG_ACCEL_XOUT_H,
-        I2C_MEMADD_SIZE_8BIT,
-        received_data,
-        sizeof(received_data),
-        100
-    ) != HAL_OK)
-{
-    return;
-}
+**IMU 데이터 스트림** (`stream on` 커맨드로 활성화)
+```
+IMU,<seq>,<t_ms>,<ax>,<ay>,<az>,<gx>,<gy>,<gz>,<roll_cdeg>,<pitch_cdeg>,<status>
 ```
 
-### 3. 상보 필터
+| 필드 | 설명 |
+|------|------|
+| `seq` | 프레임 순번 (손실 감지용) |
+| `t_ms` | MCU 부팅 후 경과 시간 (ms) |
+| `ax/ay/az` | 가속도 Raw 값 (16-bit) |
+| `gx/gy/gz` | 자이로 Raw 값 (16-bit) |
+| `roll_cdeg` | Roll 각도 × 100 (정수 전송) |
+| `pitch_cdeg` | Pitch 각도 × 100 (정수 전송) |
+| `status` | `OK` / `SENSOR_OFFLINE` |
 
-가속도 기반 각도는 장기적으로 안정적이지만 진동에 민감하고, 자이로 적분값은 반응이 빠르지만 Drift가 누적됩니다. 두 값을 96:4 비율로 결합해 단기 응답성과 장기 안정성을 보완했습니다.
-
-```c
-filtered_angle =
-    0.96 * (previous_angle + gyro_rate * delta_time)
-    + 0.04 * accel_angle;
+**센서 오류 메시지**
+```
+ERR,SENSOR_OFFLINE
+OK,SENSOR_RECOVERED
 ```
 
-## 트러블슈팅
+---
 
-### I2C Bus Stuck Low
+## UART 콘솔 커맨드
 
-- **증상:** MPU6050 ACK 미수신, I2C 주소 탐색에서 Device 미검출
-- **분리:** 전체 7-bit 주소에서 응답이 없음을 확인해 소프트웨어 레지스터 설정과 물리 계층 문제를 분리
-- **원인:** Breadboard 접촉 불량으로 SDA Line이 GND에 단락
-- **해결:** Pin Soldering 완료 Board로 교체한 후 I2C 통신 복구
+115200bps 터미널에서 아래 커맨드를 입력할 수 있습니다.
 
-### UART 없이 센서값 확인
+| 커맨드 | 응답 | 설명 |
+|--------|------|------|
+| `stream on` | `ACK,STREAM,ON` | 텔레메트리 스트림 시작 |
+| `stream off` | `ACK,STREAM,OFF` | 텔레메트리 스트림 중지 |
+| `status` | `STATUS,sensor=OK,stream=ON,...` | 현재 노드 상태 확인 |
 
-초기 개발 단계에서는 USB-to-TTL 장비 없이 ST-Link와 STM32CubeIDE Live Expressions를 사용해 Raw Data와 필터 출력을 실시간으로 관찰했습니다. 이후에는 USART1 `printf` Redirection을 추가해 필터 적용 전·후 값을 시리얼 로그로 비교하도록 확장했습니다.
+---
 
-## Build
+## 하드웨어 연결
 
-ARM GNU Toolchain과 CMake가 설치된 환경에서 다음과 같이 빌드합니다.
+| MPU6050 핀 | STM32 핀 | 설명 |
+|-----------|----------|------|
+| VCC | 3.3V | 전원 |
+| GND | GND | 공통 접지 |
+| SDA | PB7 (I2C1_SDA) | I2C 데이터 |
+| SCL | PB6 (I2C1_SCL) | I2C 클럭 |
+| AD0 | GND | I2C 주소 0x68 선택 |
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+| UART | STM32 핀 | 설명 |
+|------|----------|------|
+| TX | PA9 (USART1_TX) | 텔레메트리 출력 |
+| RX | PA10 (USART1_RX) | 커맨드 수신 |
+
+---
+
+## 구현 포인트 요약
+
+1. **MPU6050 드라이버 직접 구현** — HAL 라이브러리 없이 I2C 레지스터 맵 직접 조작 (WHO_AM_I 확인, Sleep 해제, Burst Read)
+2. **상보 필터** — 자이로 드리프트와 가속도 노이즈를 상호 보완하는 1차 상보 필터 직접 구현
+3. **링 버퍼 기반 UART RX** — 인터럽트 콜백에서 링 버퍼에 수신 바이트를 쌓고, 메인 루프에서 비동기적으로 소비
+4. **Non-blocking 멀티태스킹** — `HAL_GetTick()` 기반 주기별 태스크 분리 (RTOS 없이 협력적 스케줄링)
+5. **센서 장애 복구** — 센서 오프라인 감지 후 1Hz 주기로 재연결 시도하는 상태 머신
+
+---
+
+## 빌드 방법
+
+STM32CubeIDE에서 프로젝트를 Import 후 빌드합니다.
+
+```
+File → Import → Existing Projects into Workspace → 이 폴더 선택
 ```
 
-빌드가 완료되면 `build/` 디렉터리에 ELF, HEX, BIN 파일이 생성됩니다.
-
-## 개발 환경
-
-| 항목 | 내용 |
-|---|---|
-| MCU | STM32F103C8T6 |
-| IDE | STM32CubeIDE 2.x |
-| Configuration | STM32CubeMX `.ioc` |
-| Firmware Library | STM32CubeF1 HAL |
-| Build | CMake, ARM GNU Toolchain |
-| Language | C11 |
-
-## 프로젝트 구조
-
-```text
-.
-├── .github/workflows/build.yml      # CI Cross Build
-├── Core/
-│   ├── Inc/
-│   │   ├── main.h
-│   │   └── mpu6050.h              # Register Map·Driver Interface
-│   ├── Src/
-│   │   ├── main.c                 # Peripheral Initialization·Main Loop
-│   │   └── mpu6050.c              # Sensor Read·Attitude Estimation
-│   └── Startup/                    # Cortex-M3 Startup
-├── Drivers/                        # CMSIS·STM32F1 HAL
-├── CMakeLists.txt
-├── STM32F103C8TX_FLASH.ld
-├── stm32_imu_attitude.ioc
-└── README.md
-```
+또는 CMakeLists.txt를 이용한 CLI 빌드도 가능합니다.
