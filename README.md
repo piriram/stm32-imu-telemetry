@@ -1,13 +1,13 @@
-# STM32F103 × MPU6050 → CAN 전송 시스템
+# STM32F103 × MPU6050 IMU 자세 추정 펌웨어
 
 > STM32F103(BluePill) 보드에서 MPU6050 IMU 센서 데이터를 I2C로 읽고,  
-> 상보 필터로 Roll/Pitch 각도를 안정화한 뒤 CAN 버스로 전송하는 펌웨어입니다.
+> 가속도와 자이로 데이터를 융합해 안정적인 Roll/Pitch 자세각을 계산하는 펌웨어입니다.
 
 ## 📌 시스템 구성
 
 ```
-MPU6050 ──I2C──▶ STM32 Node A ──CAN──▶ STM32 Node B ──UART──▶ PC
- (IMU)             (송신 노드)             (수신 노드)        (모니터링)
+MPU6050 ──I2C──▶ STM32F103 ──SWD/ST-Link──▶ PC
+ (IMU)          (데이터 수집·자세 추정)        (모니터링)
 ```
 
 ## ✅ 구현 현황
@@ -17,8 +17,6 @@ MPU6050 ──I2C──▶ STM32 Node A ──CAN──▶ STM32 Node B ──UA
 | Phase 1 | I2C 초기화 및 MPU6050 Sleep 해제 (`0x6B` ← `0x00`) | ✅ 완료 |
 | Phase 2 | 가속도 + 자이로 14바이트 Burst Read, Raw → 각도 변환 | ✅ 완료 |
 | Phase 3 | 상보 필터(Complementary Filter) 적용, Roll/Pitch 안정화 | ✅ 완료 |
-| Phase 4 | CAN Loopback 테스트 (bxCAN, TJA1050) | 🔄 진행 중 |
-| Phase 5 | IMU → CAN 전송 + 수신 노드 → UART 출력 통합 | ⏳ 예정 |
 
 ---
 
@@ -26,19 +24,16 @@ MPU6050 ──I2C──▶ STM32 Node A ──CAN──▶ STM32 Node B ──UA
 
 | 부품 | 사양 | 역할 |
 |------|------|------|
-| MCU | STM32F103C8T6 (BluePill) × 2 | 송신 / 수신 노드 |
+| MCU | STM32F103C8T6 (BluePill) | 센서 데이터 수집·자세 추정 |
 | IMU | MPU6050 (GY-521) | 6축 가속도 + 자이로 |
-| CAN Transceiver | TJA1050 × 2 | CAN 물리 계층 |
 | Debugger | ST-Link V2 | 플래시 / SWD 디버깅 |
 
-**핀 매핑 (Node A — 송신)**
+**핀 매핑**
 
 | 신호 | STM32 핀 | 연결 대상 |
 |------|----------|-----------|
 | I2C1_SCL | PB6 | MPU6050 SCL |
 | I2C1_SDA | PB7 | MPU6050 SDA |
-| CAN_TX | PA12 | TJA1050 TXD |
-| CAN_RX | PA11 | TJA1050 RXD |
 
 ---
 
@@ -141,16 +136,12 @@ filtered_pitch = ALPHA * (filtered_pitch + gy_rate * dt) + (1.0f - ALPHA) * acce
 ## 📁 프로젝트 구조
 
 ```
-stm32-imu-can-node/
+project/
 ├── Core/
 │   ├── Inc/
 │   │   └── main.h
 │   └── Src/
-│       ├── main.c          ← 메인 루프 및 IMU 처리
-│       ├── complementary_filter.c  ← 상보 필터
-│       └── can_transmit.c  ← CAN 전송 (구현 중)
+│       └── main.c          ← 센서 수집·자세각 계산·상보 필터
 ├── Drivers/                ← STM32 HAL 드라이버
-├── docs/
-│   └── wiring_diagram.png  ← 결선도
 └── README.md
 ```
