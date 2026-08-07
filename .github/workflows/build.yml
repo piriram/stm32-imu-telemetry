@@ -1,4 +1,4 @@
-name: Build STM32F103C8T6 CMake Template
+name: Build STM32 IMU Firmware
 
 on: [ push ]
 
@@ -22,5 +22,10 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: STM32F103C8T6-CMake-Template-Artifacts
-          path: build/STM32F103C8T6-CMake-Template*
+          name: stm32-imu-attitude-firmware
+          path: |
+            build/stm32_imu_attitude.elf
+            build/stm32_imu_attitude.hex
+            build/stm32_imu_attitude.bin
+            build/stm32_imu_attitude.map
+          if-no-files-found: error

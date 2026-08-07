@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2022 STMicroelectronics.
+  * Copyright (c) 2026 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -29,23 +29,9 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f1xx_hal.h"
 
-#include "stm32f1xx_ll_usart.h"
-#include "stm32f1xx_ll_rcc.h"
-#include "stm32f1xx_ll_bus.h"
-#include "stm32f1xx_ll_system.h"
-#include "stm32f1xx_ll_exti.h"
-#include "stm32f1xx_ll_cortex.h"
-#include "stm32f1xx_ll_utils.h"
-#include "stm32f1xx_ll_pwr.h"
-#include "stm32f1xx_ll_dma.h"
-#include "stm32f1xx_ll_gpio.h"
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "cmsis_os2.h"
 
-#include "echo_uart2_task.h"
-#include "echo_usb_task.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -71,14 +57,9 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define Led0_Pin GPIO_PIN_13
-#define Led0_GPIO_Port GPIOC
-#define I2C_SCL_Pin GPIO_PIN_6
-#define I2C_SDA_Pin GPIO_PIN_9
+
 /* USER CODE BEGIN Private defines */
-#define Led0_Toggle HAL_GPIO_TogglePin(Led0_GPIO_Port, Led0_Pin)
-#define Led0_On HAL_GPIO_WritePin(Led0_GPIO_Port, Led0_Pin, GPIO_PIN_RESET)
-#define Led0_Off HAL_GPIO_WritePin(Led0_GPIO_Port, Led0_Pin, GPIO_PIN_SET)
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

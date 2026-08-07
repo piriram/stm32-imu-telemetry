@@ -1,147 +1,169 @@
 # STM32F103 × MPU6050 IMU 자세 추정 펌웨어
 
-> STM32F103(BluePill) 보드에서 MPU6050 IMU 센서 데이터를 I2C로 읽고,  
-> 가속도와 자이로 데이터를 융합해 안정적인 Roll/Pitch 자세각을 계산하는 펌웨어입니다.
+STM32F103C8T6에서 MPU6050의 6축 IMU 데이터를 I2C로 수집하고, 상보 필터로 Roll/Pitch 자세각을 계산하는 펌웨어입니다. 센서 드라이버를 메인 루프와 분리했으며, 필터 적용 전·후 값을 UART 또는 SWD 기반 디버깅으로 비교할 수 있습니다.
 
-## 📌 시스템 구성
+## 핵심 기능
 
+- MPU6050 Sleep 모드 해제 및 I2C 레지스터 접근
+- 가속도계·자이로스코프 14바이트 Burst Read
+- 16비트 Raw Data 복원 및 Roll/Pitch 계산
+- 가속도 Noise와 자이로 Drift를 보완하는 상보 필터
+- UART 시리얼 출력 및 STM32CubeIDE Live Expressions 디버깅
+- CMake 기반 ARM Cross Compile와 GitHub Actions 자동 빌드
+
+## 시스템 구성
+
+```text
+MPU6050 ──I2C 100 kHz──▶ STM32F103C8T6 ──UART 115200 bps──▶ PC
+  IMU                      자세각 계산                 시리얼 모니터링
+                                │
+                                └──SWD/ST-Link──▶ Live Expressions
 ```
-MPU6050 ──I2C──▶ STM32F103 ──SWD/ST-Link──▶ PC
- (IMU)          (데이터 수집·자세 추정)        (모니터링)
-```
 
-## ✅ 구현 현황
+## 구현 현황
 
 | 단계 | 내용 | 상태 |
-|------|------|------|
-| Phase 1 | I2C 초기화 및 MPU6050 Sleep 해제 (`0x6B` ← `0x00`) | ✅ 완료 |
-| Phase 2 | 가속도 + 자이로 14바이트 Burst Read, Raw → 각도 변환 | ✅ 완료 |
-| Phase 3 | 상보 필터(Complementary Filter) 적용, Roll/Pitch 안정화 | ✅ 완료 |
+|---|---|---|
+| Phase 1 | I2C 초기화 및 MPU6050 Sleep 해제 | ✅ 완료 |
+| Phase 2 | 가속도·자이로 14바이트 Burst Read 및 각도 변환 | ✅ 완료 |
+| Phase 3 | 상보 필터 적용 및 출력 값 비교 | ✅ 완료 |
 
----
-
-## 🔩 하드웨어
+## 하드웨어
 
 | 부품 | 사양 | 역할 |
-|------|------|------|
+|---|---|---|
 | MCU | STM32F103C8T6 (BluePill) | 센서 데이터 수집·자세 추정 |
-| IMU | MPU6050 (GY-521) | 6축 가속도 + 자이로 |
-| Debugger | ST-Link V2 | 플래시 / SWD 디버깅 |
+| IMU | MPU6050 (GY-521) | 3축 가속도·3축 자이로 측정 |
+| Debugger | ST-Link V2 | Firmware Flash·SWD 디버깅 |
+| Serial | USB-to-TTL | UART 데이터 모니터링 |
 
-**핀 매핑**
+### 핀 매핑
 
 | 신호 | STM32 핀 | 연결 대상 |
-|------|----------|-----------|
+|---|---|---|
 | I2C1_SCL | PB6 | MPU6050 SCL |
 | I2C1_SDA | PB7 | MPU6050 SDA |
+| USART1_TX | PA9 | USB-to-TTL RX |
+| USART1_RX | PA10 | USB-to-TTL TX |
+| Heartbeat LED | PC13 | BluePill Onboard LED |
 
----
+## 소프트웨어 구조
 
-## 🧠 핵심 구현
+```text
+main.c
+  ├── HAL·Clock·GPIO·I2C·UART 초기화
+  ├── MPU6050 Driver 호출
+  └── 20 Hz 주기 UART 출력
 
-### 1. MPU6050 초기화 — Sleep 모드 해제
+mpu6050.c
+  ├── PWR_MGMT_1 설정
+  ├── 14-byte Burst Read
+  ├── Raw Data 복원·자세각 계산
+  └── Complementary Filter
+```
+
+## 핵심 구현
+
+### 1. MPU6050 초기화
+
+MPU6050은 전원 인가 후 Sleep 상태이므로 `PWR_MGMT_1(0x6B)` 레지스터에 `0x00`을 기록합니다.
 
 ```c
-// 전원 관리 레지스터(0x6B)에 0x00 Write → Sleep 해제
-uint8_t wake = 0x00;
-HAL_I2C_Mem_Write(&hi2c1, 0xD0, 0x6B, 1, &wake, 1, 100);
+uint8_t wake_command = 0x00;
+
+HAL_I2C_Mem_Write(
+    hi2c,
+    MPU6050_ADDR,
+    MPU6050_REG_PWR_MGMT_1,
+    I2C_MEMADD_SIZE_8BIT,
+    &wake_command,
+    1,
+    100
+);
 ```
 
-> MPU6050은 전원 인가 시 기본적으로 Sleep 상태입니다.  
-> 데이터시트 §4.28(PWR_MGMT_1) 참조.
+### 2. 14바이트 Burst Read
 
----
-
-### 2. 14바이트 Burst Read — 가속도 + 자이로 동시 취득
+`ACCEL_XOUT_H(0x3B)`부터 가속도 6바이트, 온도 2바이트, 자이로 6바이트를 한 번에 읽습니다. I2C 통신에 실패하면 해당 주기의 자세각 갱신을 중단합니다.
 
 ```c
-// 0x3B: ACCEL_XOUT_H 레지스터부터 14바이트 연속 읽기
-// accel(6) + temp(2) + gyro(6) = 14 bytes
-HAL_I2C_Mem_Read(&hi2c1, 0xD0, 0x3B, 1, i2c_buf, 14, 100);
+uint8_t received_data[14] = {0};
 
-// 상위/하위 바이트 결합 (Big-endian)
-accel_x = (int16_t)(i2c_buf[0]  << 8 | i2c_buf[1]);
-accel_y = (int16_t)(i2c_buf[2]  << 8 | i2c_buf[3]);
-accel_z = (int16_t)(i2c_buf[4]  << 8 | i2c_buf[5]);
-gyro_x  = (int16_t)(i2c_buf[8]  << 8 | i2c_buf[9]);
-gyro_y  = (int16_t)(i2c_buf[10] << 8 | i2c_buf[11]);
-
-// 단위 변환
-// 가속도: ÷ 16384 → g (±2g 기본 범위)
-// 자이로: ÷ 131   → deg/s (±250°/s 기본 범위)
-double gx_rate = gyro_x / 131.0;
-double gy_rate = gyro_y / 131.0;
+if (HAL_I2C_Mem_Read(
+        hi2c,
+        MPU6050_ADDR,
+        MPU6050_REG_ACCEL_XOUT_H,
+        I2C_MEMADD_SIZE_8BIT,
+        received_data,
+        sizeof(received_data),
+        100
+    ) != HAL_OK)
+{
+    return;
+}
 ```
 
----
+### 3. 상보 필터
 
-### 3. 상보 필터 (Complementary Filter)
-
-**문제:** 가속도만으로 각도를 구하면(`atan2`) 충격 시 값이 크게 튐. 자이로는 장기 오차(Drift) 누적.
-
-**해결:** 두 센서의 장점을 융합.
-
-```
-가속도 → 노이즈 크지만 장기 정확도 ✓ (4% 반영)
-자이로  → 반응 빠르지만 Drift 누적  ✓ (96% 반영)
-```
+가속도 기반 각도는 장기적으로 안정적이지만 진동에 민감하고, 자이로 적분값은 반응이 빠르지만 Drift가 누적됩니다. 두 값을 96:4 비율로 결합해 단기 응답성과 장기 안정성을 보완했습니다.
 
 ```c
-#define ALPHA 0.96f  // 자이로 가중치
-
-// dt: 이전 루프와의 시간 간격 (ms → s)
-uint32_t current_tick = HAL_GetTick();
-double dt = (current_tick - last_tick) / 1000.0;
-last_tick = current_tick;
-
-// 상보 필터 적용
-filtered_roll  = ALPHA * (filtered_roll  + gx_rate * dt) + (1.0f - ALPHA) * accel_roll;
-filtered_pitch = ALPHA * (filtered_pitch + gy_rate * dt) + (1.0f - ALPHA) * accel_pitch;
+filtered_angle =
+    0.96 * (previous_angle + gyro_rate * delta_time)
+    + 0.04 * accel_angle;
 ```
 
-**검증 방법:** STM32CubeIDE Live Expressions에서 `accel_roll` vs `filtered_roll` 동시 모니터링 →  
-충격 인가 시 `accel_roll`은 크게 튀는 반면 `filtered_roll`은 안정적으로 유지됨을 확인.
+## 트러블슈팅
 
----
+### I2C Bus Stuck Low
 
-## 🐛 트러블슈팅
+- **증상:** MPU6050 ACK 미수신, I2C 주소 탐색에서 Device 미검출
+- **분리:** 전체 7-bit 주소에서 응답이 없음을 확인해 소프트웨어 레지스터 설정과 물리 계층 문제를 분리
+- **원인:** Breadboard 접촉 불량으로 SDA Line이 GND에 단락
+- **해결:** Pin Soldering 완료 Board로 교체한 후 I2C 통신 복구
 
-### I2C Bus Stuck Low (SDA 0V 고정)
+### UART 없이 센서값 확인
 
-- **증상:** MPU6050 ACK 미수신, I2C 스캐너로 디바이스 미검출
-- **원인:** 브레드보드 접촉 불량으로 SDA 라인이 GND에 단락
-- **증명:** 소프트웨어 I2C 스캐너로 0x00~0x7F 전 주소 순환 탐색 → 응답 없음으로 하드웨어 문제 확정
-- **해결:** 공장 납땜 완제품 보드로 교체 후 즉시 통신 성공
+초기 개발 단계에서는 USB-to-TTL 장비 없이 ST-Link와 STM32CubeIDE Live Expressions를 사용해 Raw Data와 필터 출력을 실시간으로 관찰했습니다. 이후에는 USART1 `printf` Redirection을 추가해 필터 적용 전·후 값을 시리얼 로그로 비교하도록 확장했습니다.
 
-### UART 부재 상황에서의 디버깅
+## Build
 
-- **상황:** USB-TTL(CH340) 모듈 없어 `printf` 출력 불가
-- **해결:** STM32CubeIDE **Live Expressions** 기능 활용 — 칩 내부 전역 변수를 SWD(디버거)로 실시간 감시
-- **교훈:** UART 없이도 SWD + Live Expressions만으로 변수 변화량 충분히 검증 가능
+ARM GNU Toolchain과 CMake가 설치된 환경에서 다음과 같이 빌드합니다.
 
----
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
 
-## 🛠 개발 환경
+빌드가 완료되면 `build/` 디렉터리에 ELF, HEX, BIN 파일이 생성됩니다.
+
+## 개발 환경
 
 | 항목 | 내용 |
-|------|------|
+|---|---|
 | MCU | STM32F103C8T6 |
-| IDE | STM32CubeIDE 2.x (Mac) |
-| HAL | STM32CubeF1 HAL (I2C 초기화) + 레지스터 직접 접근 |
-| 디버거 | ST-Link V2 + st-link-server |
-| 언어 | C |
+| IDE | STM32CubeIDE 2.x |
+| Configuration | STM32CubeMX `.ioc` |
+| Firmware Library | STM32CubeF1 HAL |
+| Build | CMake, ARM GNU Toolchain |
+| Language | C11 |
 
----
+## 프로젝트 구조
 
-## 📁 프로젝트 구조
-
-```
-project/
+```text
+.
+├── .github/workflows/build.yml      # CI Cross Build
 ├── Core/
 │   ├── Inc/
-│   │   └── main.h
-│   └── Src/
-│       └── main.c          ← 센서 수집·자세각 계산·상보 필터
-├── Drivers/                ← STM32 HAL 드라이버
+│   │   ├── main.h
+│   │   └── mpu6050.h              # Register Map·Driver Interface
+│   ├── Src/
+│   │   ├── main.c                 # Peripheral Initialization·Main Loop
+│   │   └── mpu6050.c              # Sensor Read·Attitude Estimation
+│   └── Startup/                    # Cortex-M3 Startup
+├── Drivers/                        # CMSIS·STM32F1 HAL
+├── CMakeLists.txt
+├── STM32F103C8TX_FLASH.ld
+├── stm32_imu_attitude.ioc
 └── README.md
 ```

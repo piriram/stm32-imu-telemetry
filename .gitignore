@@ -58,5 +58,15 @@ dkms.conf
 # CMake build output
 build/
 
-# STM32CubeMX files
+# STM32CubeIDE workspace and local build output
+Debug/
+Release/
+.settings/
+.metadata/
+.cproject
+.project
+*.launch
+*.cfg
+
+# STM32CubeMX local metadata
 .mxproject
