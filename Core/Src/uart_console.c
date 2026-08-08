@@ -11,6 +11,7 @@ static uint8_t rx_byte;
 
 static char cmd_line[CMD_LINE_BUFFER_SIZE];
 static uint16_t cmd_idx = 0;
+static uint8_t discard_until_eol = 0;
 
 void UART_Console_Init(UART_HandleTypeDef *huart) {
     console_uart = huart;
@@ -18,6 +19,7 @@ void UART_Console_Init(UART_HandleTypeDef *huart) {
     rx_ring_buffer.tail = 0;
     rx_ring_buffer.overflow_count = 0;
     cmd_idx = 0;
+    discard_until_eol = 0;
     
     // Start RX interrupt for 1 byte
     HAL_UART_Receive_IT(console_uart, &rx_byte, 1);
@@ -71,18 +73,26 @@ void UART_Console_Process(void) {
         rx_ring_buffer.tail = (rx_ring_buffer.tail + 1) % RX_RING_BUFFER_SIZE;
         
         if (c == '\r' || c == '\n') {
-            if (cmd_idx > 0) {
+            if (discard_until_eol) {
+                discard_until_eol = 0;
+                cmd_idx = 0;
+            } else if (cmd_idx > 0) {
                 cmd_line[cmd_idx] = '\0';
                 ProcessCommand(cmd_line);
                 cmd_idx = 0;
             }
         } else {
+            if (discard_until_eol) {
+                continue;
+            }
+
             if (cmd_idx < CMD_LINE_BUFFER_SIZE - 1) {
                 cmd_line[cmd_idx++] = c;
             } else {
-                // Command too long
+                // Report once, then discard the remainder of this line.
                 Telemetry_Publish_String(console_uart, "ERR,COMMAND_TOO_LONG\r\n");
-                cmd_idx = 0; // Reset
+                cmd_idx = 0;
+                discard_until_eol = 1;
             }
         }
     }

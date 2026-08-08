@@ -51,7 +51,7 @@ void Telemetry_Publish(UART_HandleTypeDef *huart, IMU_Sample_t *sample) {
     );
 
     // Prevent buffer overflow in snprintf truncation
-    if (len > 0 && len < sizeof(tx_buf)) {
+    if (len > 0 && len < (int)sizeof(tx_buf)) {
         // Calculate a reasonable timeout based on baud rate (115200) and length
         // e.g., 100 bytes / (115200 / 10 bits) = 8.6ms. Give it 20ms.
         HAL_UART_Transmit(huart, (uint8_t*)tx_buf, len, 20);

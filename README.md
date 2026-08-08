@@ -109,6 +109,8 @@ OK,SENSOR_RECOVERED
 | `stream on` | `ACK,STREAM,ON` | 텔레메트리 스트림 시작 |
 | `stream off` | `ACK,STREAM,OFF` | 텔레메트리 스트림 중지 |
 | `status` | `STATUS,sensor=OK,stream=ON,...` | 현재 노드 상태 확인 |
+| 정의되지 않은 명령 | `ERR,INVALID_COMMAND` | 입력 거부 |
+| 31자를 초과하는 명령 | `ERR,COMMAND_TOO_LONG` | 현재 Line을 개행까지 폐기 |
 
 ---
 
@@ -159,3 +161,28 @@ File → Import → Existing Projects into Workspace → 이 폴더 선택
 ```
 
 또는 CMakeLists.txt를 이용한 CLI 빌드도 가능합니다.
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
+
+---
+
+## 검증 자동화
+
+USB Serial Port가 하나면 자동 선택하며, 여러 개면 `--port`로 지정합니다.
+
+```bash
+python3 -m pip install pyserial
+python3 tools/run_uart_tests.py --duration 60 --burst-test --recovery-test
+python3 tools/analyze_uart_log.py \
+  docs/validation/uart_60s_session.txt \
+  --output docs/validation/uart_60s_summary.md \
+  --strict
+```
+
+- [검증 실행 안내](docs/validation/README.md)
+- [UART Interface](docs/validation/uart_interface.md)
+- [Test Matrix](docs/validation/uart_test_results.md)
+- [Data Flow](docs/architecture/uart_data_flow.md)

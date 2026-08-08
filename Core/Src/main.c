@@ -67,6 +67,22 @@ static void MX_I2C1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static HAL_StatusTypeDef I2C1_RecoverPeripheral(void)
+{
+  /*
+   * A cable disconnect can leave the STM32F1 I2C peripheral with BUSY/START
+   * state latched even after the signal is restored. DeInit/Init applies the
+   * peripheral software reset and restores PB6/PB7 before probing WHO_AM_I.
+   */
+  if (HAL_I2C_DeInit(&hi2c1) != HAL_OK)
+  {
+    return HAL_ERROR;
+  }
+
+  MX_I2C1_Init();
+  return HAL_OK;
+}
+
 /*
  * [공부 포인트 - printf 리다이렉션 (Redirection)]
  * C언어의 표준 출력 함수인 printf()는 원래 PC의 모니터(콘솔)로 문자를 보냅니다.
@@ -171,8 +187,9 @@ int main(void)
       else if (g_sensor_status == NODE_SENSOR_OFFLINE) {
           if ((current_tick - last_probe_tick) >= 1000) {
               last_probe_tick = current_tick;
-              
-              if (MPU6050_Init(&hi2c1, &my_mpu) == MPU6050_OK) {
+
+              if ((I2C1_RecoverPeripheral() == HAL_OK) &&
+                  (MPU6050_Init(&hi2c1, &my_mpu) == MPU6050_OK)) {
                   g_sensor_status = NODE_OK;
                   Telemetry_Publish_String(&huart1, "OK,SENSOR_RECOVERED\r\n");
               }

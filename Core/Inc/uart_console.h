@@ -10,7 +10,7 @@ typedef struct {
     uint8_t buffer[RX_RING_BUFFER_SIZE];
     volatile uint16_t head;
     volatile uint16_t tail;
-    uint32_t overflow_count;
+    volatile uint32_t overflow_count;
 } RingBuffer_t;
 
 // Functions
