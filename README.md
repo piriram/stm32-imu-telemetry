@@ -144,7 +144,7 @@ Multi-port USB Hub를 사용해 ST-Link V2와 USB-to-TTL을 Mac에 동시에 연
 
 ## 구현 포인트 요약
 
-1. **MPU6050 드라이버 직접 구현** — HAL 라이브러리 없이 I2C 레지스터 맵 직접 조작 (WHO_AM_I 확인, Sleep 해제, Burst Read)
+1. **MPU6050 드라이버 직접 구현** — Sensor 제조사 Library 없이 STM32 HAL I2C API로 Register Map 직접 조작 (WHO_AM_I 확인, Sleep 해제, Burst Read)
 2. **상보 필터** — 자이로 드리프트와 가속도 노이즈를 상호 보완하는 1차 상보 필터 직접 구현
 3. **링 버퍼 기반 UART RX** — 인터럽트 콜백에서 링 버퍼에 수신 바이트를 쌓고, 메인 루프에서 비동기적으로 소비
 4. **Non-blocking 멀티태스킹** — `HAL_GetTick()` 기반 주기별 태스크 분리 (RTOS 없이 협력적 스케줄링)
@@ -186,3 +186,28 @@ python3 tools/analyze_uart_log.py \
 - [UART Interface](docs/validation/uart_interface.md)
 - [Test Matrix](docs/validation/uart_test_results.md)
 - [Data Flow](docs/architecture/uart_data_flow.md)
+
+## 실물 검증 결과
+
+2026-08-09 최신 Firmware를 STM32F103에 Flash하고 정상, Command, Burst, Sensor 단절과 자동 복구를 실물에서 검증했습니다.
+
+| 항목 | 실측 결과 | 판정 |
+|---|---|---|
+| 60초 Telemetry | 600건, Seq 8~607, Gap 0, Parsing 실패 0 | PASS |
+| 전송 주기 | Min/Avg/Max 100/100.00/100ms, 10.000Hz | PASS |
+| Command | status, stream off/on, Invalid, Too-long | PASS |
+| 512byte Burst | System과 10Hz IMU 유지, Overflow Counter 0 | PASS |
+| Sensor 단절 | `ERR,SENSOR_OFFLINE` 1회, IMU 발행 중지 | PASS |
+| Sensor 복구 | `OK,SENSOR_RECOVERED`, IMU 19건 재개 | PASS |
+| 자세 변화 | Roll Range 237.03°, Pitch Range 207.69° | PASS |
+| Build 사용량 | RAM 2,352B/20KB, Flash 17,180B/64KB | PASS |
+
+Burst 입력에서는 Overflow Counter 증가를 재현하지 못했으므로 Overflow가 발생했다고 주장하지 않습니다. 연속 입력 중에도 System과 Telemetry가 유지된 결과만 기록합니다.
+
+### 검증 증거
+
+![전체 배선](docs/validation/evidence/uart_full_wiring_overview.png)
+
+![Sensor 자동 복구](docs/validation/evidence/uart_sensor_recovery_pass.png)
+
+![MPU6050 자세 변화](docs/validation/evidence/mpu6050_pose_validation_3step.png)

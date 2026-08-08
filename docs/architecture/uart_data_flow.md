@@ -25,7 +25,7 @@ flowchart LR
 | UART Parser | Every main loop | main | Dequeue, Line 조립, Command 판별 |
 | Sensor Sampling | 50ms, 20Hz | main | I2C Burst Read, 자세각과 Filter 갱신 |
 | Telemetry Publish | 100ms, 10Hz | main | `IMU_Sample_t` CSV 직렬화와 TX |
-| Reconnect Probe | 1000ms, Offline only | main | WHO_AM_I 재확인과 Sensor 재초기화 |
+| Reconnect Probe | 1000ms, Offline only | main | I2C DeInit/Init, WHO_AM_I 재확인과 Sensor 재초기화 |
 
 ## Design Boundaries
 
@@ -33,3 +33,4 @@ flowchart LR
 - RX Producer와 main Consumer의 속도를 분리하기 위해 고정 크기 Ring Buffer를 사용한다.
 - Sensor 처리와 Transport를 `IMU_Sample_t`로 분리해 후속 CAN Frame Packing에서도 같은 Data Model을 재사용한다.
 - Sensor Offline 전이 시 Error를 한 번 기록하고, 복구 전까지 오래된 자세각을 정상 Telemetry로 발행하지 않는다.
+- STM32F1 I2C BUSY/START 상태 잔류에 대응해 Offline Probe 전에 Peripheral Software Reset을 수행한다.

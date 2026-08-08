@@ -69,3 +69,14 @@
 - 원인 대응: STM32F1 I2C Peripheral의 BUSY/START 상태가 오류 뒤 잔류할 가능성에 대응해 Offline Probe 전에 `HAL_I2C_DeInit/Init` Software Reset을 추가함.
 - 2026-08-09 최종 Recovery 시험: Seq 18 뒤 `ERR,SENSOR_OFFLINE`, SDA 재연결 뒤 `OK,SENSOR_RECOVERED`, 이어서 Seq 19~37 IMU 19건이 정상 발행되어 SENSOR-01~03 PASS.
 - Firmware 실물 기능 검증과 공개용 전체 배선/Recovery/MPU6050 3단계 자세 변화 Capture 정리를 완료함.
+
+## Final Evidence
+
+| Evidence | File |
+|---|---|
+| 전체 배선 | `evidence/uart_full_wiring_overview.png` |
+| Sensor Offline/Recovered | `evidence/uart_sensor_recovery_pass.png` |
+| MPU6050 3단계 자세 변화 | `evidence/mpu6050_pose_validation_3step.png` |
+| 60초 Timing/Sequence | `uart_60s_session.txt`, `uart_60s_summary.md` |
+| Command/Burst | `uart_command_session.txt` |
+| Sensor 오류/복구 원본 | `uart_error_recovery.txt` |
