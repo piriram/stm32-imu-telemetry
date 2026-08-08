@@ -14,7 +14,7 @@
 | SENSOR-01 | 실행 중 Sensor 단절 | Streaming 중 SDA Signal 분리 | `ERR,SENSOR_OFFLINE` 1회 | Seq 18 이후 `ERR,SENSOR_OFFLINE` 1회, 이후 IMU 발행 중지 | PASS | `uart_error_recovery.txt`, `evidence/uart_sensor_recovery_pass.png` |
 | SENSOR-02 | Sensor 자동 복구 | SDA 재연결 후 대기 | 1Hz Probe 후 `OK,SENSOR_RECOVERED` | SDA 재연결 후 `OK,SENSOR_RECOVERED` 1회 확인 | PASS | `uart_error_recovery.txt`, `evidence/uart_sensor_recovery_pass.png` |
 | SENSOR-03 | 복구 후 회귀 | Recovered 이후 IMU 관찰 | 정상 IMU 발행 재개, 오래된 값 정상값 오인 없음 | Recovered 직후 Seq 19~37 IMU 19건 정상 발행, 단절 전 Seq 18에서 연속 | PASS | `uart_error_recovery.txt`, `evidence/uart_sensor_recovery_pass.png` |
-| REG-01 | 기존 자세각 회귀 | 보드 자세 변경 | Roll/Pitch 방향과 값 변화 정상 | Roll Range 237.03°, Pitch Range 207.69°로 자세 변화 관측 | PASS | `uart_60s_session.txt` |
+| REG-01 | 기존 자세각 회귀 | MPU6050을 평면·오른쪽 90°·앞쪽 90°로 변경 | Roll/Pitch 방향과 값 변화 정상 | Roll Range 237.03°, Pitch Range 207.69°로 자세 변화 관측 | PASS | `uart_60s_session.txt`, `evidence/mpu6050_pose_validation_3step.png` |
 
 ## 판정 원칙
 

@@ -42,6 +42,7 @@ python3 tools/run_uart_tests.py \
 | `uart_command_session.txt` | `status`, Stream 제어, Invalid, Too-long, Burst Test |
 | `uart_error_recovery.txt` | SDA 분리와 재연결 시 Offline/Recovered 흐름 |
 | `evidence/uart_sensor_recovery_pass.png` | 경로 정보를 제거한 Sensor 자동 복구 공개용 Terminal Capture |
+| `evidence/mpu6050_pose_validation_3step.png` | 평면·오른쪽 90°·앞쪽 90°의 MPU6050 자세 변화 Capture |
 
 ## 3. 60초 Log 분석
 
