@@ -68,4 +68,4 @@
 - 2026-08-09 1차 Recovery 시험: SDA 단절 시 `ERR,SENSOR_OFFLINE` 1회와 IMU 중지는 확인했으나 재연결 후 Recovery가 발생하지 않음.
 - 원인 대응: STM32F1 I2C Peripheral의 BUSY/START 상태가 오류 뒤 잔류할 가능성에 대응해 Offline Probe 전에 `HAL_I2C_DeInit/Init` Software Reset을 추가함.
 - 2026-08-09 최종 Recovery 시험: Seq 18 뒤 `ERR,SENSOR_OFFLINE`, SDA 재연결 뒤 `OK,SENSOR_RECOVERED`, 이어서 Seq 19~37 IMU 19건이 정상 발행되어 SENSOR-01~03 PASS.
-- Firmware 실물 기능 검증은 완료했으며, 다음 단계는 공개용 Hardware/Terminal Capture 정리다.
+- Firmware 실물 기능 검증과 공개용 전체 배선/Recovery Capture 정리를 완료했으며, 다음 산출물은 자세 변화 Capture다.

@@ -41,7 +41,7 @@ python3 tools/run_uart_tests.py \
 | `uart_60s_session.txt` | 60초 정상 Telemetry 원본 |
 | `uart_command_session.txt` | `status`, Stream 제어, Invalid, Too-long, Burst Test |
 | `uart_error_recovery.txt` | SDA 분리와 재연결 시 Offline/Recovered 흐름 |
-| `evidence/uart_sensor_recovery_pass.png` | Sensor 자동 복구 Terminal Capture (내부 검증용) |
+| `evidence/uart_sensor_recovery_pass.png` | 경로 정보를 제거한 Sensor 자동 복구 공개용 Terminal Capture |
 
 ## 3. 60초 Log 분석
 
