@@ -127,6 +127,17 @@ OK,SENSOR_RECOVERED
 | TX | PA9 (USART1_TX) | 텔레메트리 출력 |
 | RX | PA10 (USART1_RX) | 커맨드 수신 |
 
+### Host USB 연결
+
+Multi-port USB Hub를 사용해 ST-Link V2와 USB-to-TTL을 Mac에 동시에 연결합니다.
+
+| USB 장비 | 역할 |
+|----------|------|
+| ST-Link V2 | Firmware Flash, SWD Debug |
+| USB-to-TTL | 115200 8N1 Telemetry 수신, UART Command 입력 |
+
+두 장비를 물리적으로 동시에 연결해 둔 상태에서 Flash와 UART 검증을 이어서 수행할 수 있습니다. 단, STM32CubeIDE와 STM32CubeMonitor는 하나의 ST-Link를 동시에 점유할 수 없으므로 CubeMonitor 사용 전 IDE Debug Session을 종료해야 합니다.
+
 ---
 
 ## 구현 포인트 요약
