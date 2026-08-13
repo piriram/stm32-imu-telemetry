@@ -22,6 +22,7 @@
 #include "stm32f1xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "can_node.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -199,6 +200,14 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /* USER CODE BEGIN 1 */
+/**
+  * @brief This function handles CAN1 RX FIFO 0 / USB low-priority interrupt.
+  */
+void USB_LP_CAN1_RX0_IRQHandler(void)
+{
+  CAN_Node_Rx0IRQHandler();
+}
+
 /**
   * @brief This function handles USART1 global interrupt.
   */

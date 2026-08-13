@@ -1,7 +1,7 @@
 # STM32F103 IMU 자세 추정 노드
 
 STM32F103C8(Blue Pill)과 MPU6050 IMU 센서를 이용한 자세 추정 펌웨어.  
-상보 필터(Complementary Filter)를 직접 구현하여 Roll/Pitch 각도를 실시간으로 추정하고, UART 텔레메트리로 전송합니다.
+상보 필터(Complementary Filter)를 직접 구현하여 Roll/Pitch 각도를 추정하고, UART 텔레메트리와 CAN Frame으로 전송합니다. CAN 코드는 빌드를 통과했으며 External CAN 실물 검증은 진행 중입니다.
 
 ---
 
@@ -11,12 +11,12 @@ STM32F103C8(Blue Pill)과 MPU6050 IMU 센서를 이용한 자세 추정 펌웨�
 |------|------|
 | MCU | STM32F103C8T6 (Blue Pill) |
 | 센서 | MPU6050 (가속도계 + 자이로스코프) |
-| 통신 인터페이스 | I2C1 (센서), USART1 (텔레메트리/콘솔) |
+| 통신 인터페이스 | I2C1 (센서), USART1 (텔레메트리/콘솔), CAN1 (센서/명령) |
 | 필터 알고리즘 | 상보 필터 (α = 0.96) |
 | 센서 샘플링 | 20 Hz |
 | 텔레메트리 출력 | 10 Hz |
 | Baud Rate | 115200 bps |
-| 개발 환경 | STM32CubeIDE, STM32 HAL |
+| 개발 환경 | STM32CubeIDE, STM32 HAL, CMSIS bxCAN Register |
 
 ---
 
@@ -45,10 +45,12 @@ Filtered_Pitch = 0.96 * (Filtered_Pitch + gy_rate * dt) + 0.04 * Accel_Pitch;
 Core/
 ├── Inc/
 │   ├── mpu6050.h       # MPU6050 드라이버 인터페이스 & 데이터 구조체
+│   ├── can_node.h       # CAN Frame, Command, 진단 Counter 인터페이스
 │   ├── telemetry.h     # IMU_Sample_t 구조체, 텔레메트리 API
 │   └── uart_console.h  # 링 버퍼 기반 UART 콘솔 인터페이스
 └── Src/
     ├── main.c          # 메인 루프 (non-blocking 태스크 스케줄링)
+    ├── can_node.c      # bxCAN 설정, Rx ISR Queue, CAN 명령 처리
     ├── mpu6050.c       # I2C 드라이버 + 상보 필터 구현
     ├── telemetry.c     # CSV 포맷 텔레메트리 직렬화 & 전송
     └── uart_console.c  # 링 버퍼 RX, 인터럽트 기반 커맨드 처리
@@ -61,10 +63,22 @@ Core/
 | 태스크 | 주기 | 설명 |
 |--------|------|------|
 | UART 커맨드 처리 | 매 루프 | 링 버퍼에서 수신 바이트 소비 |
+| CAN 커맨드 처리 | 매 루프 | ISR Queue에서 Frame을 꺼내 상태 변경 |
 | 센서 샘플링 | 50ms (20Hz) | MPU6050 Burst Read + 상보 필터 |
 | 센서 재연결 프로브 | 1000ms (1Hz) | 센서 오프라인 감지 시 재초기화 시도 |
 | 텔레메트리 전송 | 100ms (10Hz) | CSV 포맷 데이터 UART 출력 |
+| CAN IMU 전송 | 100ms (10Hz) | Roll/Pitch, Sequence, Status 전송 |
 | Heartbeat LED | 100ms (10Hz) | PC13 토글 (정상 동작 확인) |
+
+## CAN 프로토콜
+
+- `0x100 IMU_POSE`: STM32 → CANable, 100ms, Roll/Pitch/Sequence/Status
+- `0x200 COMMAND`: CANable → STM32, Stream On/Off 및 Status Request
+- `0x201 RESPONSE`: STM32 → CANable, 처리 결과와 오류 Counter
+- 500 kbit/s, Standard ID, PA11 RX/PA12 TX
+- Rx ISR은 Software Queue 저장만 수행하고 명령은 main loop에서 처리
+
+Frame Byte 정의와 CANable 실행법은 [CAN 인터페이스 및 실물 검증 절차](docs/validation/can_interface.md)에 정리했습니다.
 
 ---
 

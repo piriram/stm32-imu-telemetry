@@ -22,6 +22,7 @@ set(MCU_FLAGS
 
 set(PROJECT_SOURCES
     Core/Src/main.c
+    Core/Src/can_node.c
     Core/Src/mpu6050.c
     Core/Src/telemetry.c
     Core/Src/uart_console.c

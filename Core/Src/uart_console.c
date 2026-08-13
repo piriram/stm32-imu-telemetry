@@ -1,4 +1,5 @@
 #include "uart_console.h"
+#include "can_node.h"
 #include "telemetry.h"
 #include <string.h>
 #include <stdio.h>
@@ -46,12 +47,24 @@ static void ProcessCommand(const char *cmd) {
     if (strlen(cmd) == 0) return;
 
     if (strcmp(cmd, "status") == 0) {
-        char buf[80];
+        char buf[192];
+        CAN_Node_Stats_t can_stats;
         const char *sensor_str = (g_sensor_status == NODE_OK) ? "OK" : "OFFLINE";
-        snprintf(buf, sizeof(buf), "STATUS,sensor=%s,stream=%s,rate=10,overflow=%lu\r\n", 
+        CAN_Node_GetStats(&can_stats);
+        snprintf(buf, sizeof(buf),
+                 "STATUS,sensor=%s,uart_stream=%s,rate=10,uart_overflow=%lu,"
+                 "can=%s,can_stream=%s,can_tx=%lu,can_busy=%lu,can_rx=%lu,"
+                 "can_overflow=%lu,can_esr=0x%08lX\r\n",
                  sensor_str,
                  Telemetry_Get_Stream() == STREAM_ON ? "ON" : "OFF",
-                 rx_ring_buffer.overflow_count);
+                 rx_ring_buffer.overflow_count,
+                 can_stats.initialized ? "READY" : "INIT_FAILED",
+                 can_stats.stream_enabled ? "ON" : "OFF",
+                 can_stats.tx_enqueued,
+                 can_stats.tx_busy,
+                 can_stats.rx_processed,
+                 can_stats.rx_overflow,
+                 can_stats.esr);
         Telemetry_Publish_String(console_uart, buf);
     } 
     else if (strcmp(cmd, "stream on") == 0) {

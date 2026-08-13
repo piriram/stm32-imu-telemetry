@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include "can_node.h"
 #include "mpu6050.h"
 #include "telemetry.h"
 #include "uart_console.h"
@@ -130,6 +131,12 @@ int main(void)
   /* USER CODE BEGIN 2 */
   UART_Console_Init(&huart1);
   Telemetry_Init();
+
+  if (CAN_Node_Init(&huart1)) {
+      Telemetry_Publish_String(&huart1, "BOOT,OK,CAN_500K_READY\r\n");
+  } else {
+      Telemetry_Publish_String(&huart1, "BOOT,ERR,CAN_INIT_FAILED\r\n");
+  }
   
   // --- [DIAGNOSTIC] I2C Scanner ---
   char scan_buf[64];
@@ -170,8 +177,11 @@ int main(void)
       
       // 1. Process UART commands
       UART_Console_Process();
-      
-      // 2. Sensor Sampling (20Hz = 50ms)
+
+      // 2. Process CAN frames deferred from the RX FIFO ISR
+      CAN_Node_Process();
+
+      // 3. Sensor Sampling (20Hz = 50ms)
       if (g_sensor_status == NODE_OK) {
           if ((current_tick - last_sensor_tick) >= 50) {
               last_sensor_tick = current_tick;
@@ -183,7 +193,7 @@ int main(void)
               }
           }
       } 
-      // 3. Sensor Reconnect Probe (1Hz = 1000ms)
+      // 4. Sensor Reconnect Probe (1Hz = 1000ms)
       else if (g_sensor_status == NODE_SENSOR_OFFLINE) {
           if ((current_tick - last_probe_tick) >= 1000) {
               last_probe_tick = current_tick;
@@ -196,26 +206,28 @@ int main(void)
           }
       }
       
-      // 4. Telemetry Publishing (10Hz = 100ms)
+      // 5. UART/CAN Publishing (10Hz = 100ms)
       if ((current_tick - last_telemetry_tick) >= 100) {
           last_telemetry_tick = current_tick;
-          
+
+          IMU_Sample_t sample;
+          sample.ax = my_mpu.Accel_X_Raw;
+          sample.ay = my_mpu.Accel_Y_Raw;
+          sample.az = my_mpu.Accel_Z_Raw;
+          sample.gx = my_mpu.Gyro_X_Raw;
+          sample.gy = my_mpu.Gyro_Y_Raw;
+          sample.gz = my_mpu.Gyro_Z_Raw;
+          sample.roll_cdeg = (int16_t)(my_mpu.Filtered_Roll * 100.0);
+          sample.pitch_cdeg = (int16_t)(my_mpu.Filtered_Pitch * 100.0);
+          sample.t_ms = current_tick;
+          sample.status = g_sensor_status;
+
           if (g_sensor_status == NODE_OK) {
-              IMU_Sample_t sample;
-              sample.ax = my_mpu.Accel_X_Raw;
-              sample.ay = my_mpu.Accel_Y_Raw;
-              sample.az = my_mpu.Accel_Z_Raw;
-              sample.gx = my_mpu.Gyro_X_Raw;
-              sample.gy = my_mpu.Gyro_Y_Raw;
-              sample.gz = my_mpu.Gyro_Z_Raw;
-              sample.roll_cdeg = (int16_t)(my_mpu.Filtered_Roll * 100.0);
-              sample.pitch_cdeg = (int16_t)(my_mpu.Filtered_Pitch * 100.0);
-              sample.t_ms = current_tick;
-              sample.status = NODE_OK;
-              
               Telemetry_Publish(&huart1, &sample);
           }
-          
+
+          (void)CAN_Node_PublishIMU(&sample);
+
           // Heartbeat LED
           HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
       }
