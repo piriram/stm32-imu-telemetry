@@ -58,6 +58,10 @@ dkms.conf
 # CMake build output
 build/
 
+# Python local cache
+__pycache__/
+*.py[cod]
+
 # STM32CubeIDE workspace and local build output
 Debug/
 Release/
